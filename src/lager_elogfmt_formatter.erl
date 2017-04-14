@@ -35,8 +35,9 @@ severity(Msg) ->
     {"severity", atom_to_list(Severity)}.
 
 meta(Msg, App) ->
+    {Date, Time} = lager_msg:datetime(),
     Meta = lager_msg:metadata(Msg),
-    transform_meta(Meta, App, []).
+    transform_meta([{datetime, Date ++ Time} | Meta], App, []).
 
 transform_meta([], _App, Acc) ->
     Acc;
