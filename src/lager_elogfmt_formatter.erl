@@ -23,16 +23,24 @@ format(Msg, Config) ->
     Defaults = proplists:get_value(defaults, Config, []),
     StripPid = proplists:get_value(strip_pid, Config, true),
     Meta = meta(Msg, App),
-    Props = filter(StripPid, [{"app", App}, severity(Msg) | Defaults ++ Meta]),
+
+    Props = filter(StripPid, [time(Msg),
+                              severity(Msg),
+                              {"app", App} |
+                              Defaults ++ Meta]),
     [elogfmt_core:logmessage(Props),  " ", lager_msg:message(Msg), "\n"].
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
 
+time(Msg) ->
+    {Date, Time} = lager_msg:datetime(Msg),
+    {"time", [$", Date, $\s, Time, $"]}.
+
 severity(Msg) ->
     Severity = lager_msg:severity(Msg),
-    {"severity", atom_to_list(Severity)}.
+    {"level", atom_to_list(Severity)}.
 
 meta(Msg, App) ->
     Meta = lager_msg:metadata(Msg),
