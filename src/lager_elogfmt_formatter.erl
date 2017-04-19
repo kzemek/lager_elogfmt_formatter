@@ -23,12 +23,12 @@ format(Msg, Config) ->
     Defaults = proplists:get_value(defaults, Config, []),
     StripPid = proplists:get_value(strip_pid, Config, true),
     Meta = meta(Msg, App),
-
     Props = filter(StripPid, [time(Msg),
                               severity(Msg),
-                              {"app", App} |
+                              {"app", App},
+                              msg(Msg) |
                               Defaults ++ Meta]),
-    [elogfmt_core:logmessage(Props),  " ", lager_msg:message(Msg), "\n"].
+    [elogfmt_core:logmessage(Props), "\n"].
 
 %%====================================================================
 %% Internal functions
@@ -41,6 +41,10 @@ time(Msg) ->
 severity(Msg) ->
     Severity = lager_msg:severity(Msg),
     {"level", atom_to_list(Severity)}.
+
+msg(Msg) ->
+    Message = escape(lager_msg:message(Msg)),
+    {"msg", ["\"", Message, "\""]}.
 
 meta(Msg, App) ->
     Meta = lager_msg:metadata(Msg),
@@ -116,13 +120,20 @@ escape_char(C)   -> C.
 
 severity_test() ->
     Msg = lager_msg:new("msg", error, [], []),
-    ?assertEqual({"severity", "error"}, severity(Msg)).
+    ?assertEqual({"level", "error"}, severity(Msg)).
 
-escape_test() ->
-    Msg = lager_msg:new("", error, [{test, "\n\t\b\r'\"\\"}], []),
-    ?assertEqual([{"test",
-                  ["\"", ["\\n","\\t","\\b","\\r","\\'","\\\"","\\\\"], "\""]}],
-                 meta(Msg, "myapp")).
+msg_test() ->
+    Msg = lager_msg:new("\n\t\b\r'\"\\", error, [], []),
+    ?assertEqual({"msg",
+                  ["\"", ["\\n","\\t","\\b","\\r","\\'","\\\"","\\\\"], "\""]},
+                 msg(Msg)).
+
+msg_iolist_test() ->
+    Msg = lager_msg:new(["\"", ["\n\t"],[["\b"]],"\r'\"\\"], error, [], []),
+    ?assertEqual({"msg",
+                  ["\"", ["\\\"","\\n","\\t","\\b","\\r","\\'","\\\"","\\\\"],
+                   "\""]},
+                 msg(Msg)).
 
 meta_node_test() ->
     Msg = lager_msg:new("msg", error, [{node, node()}], []),
@@ -171,23 +182,23 @@ generic_meta_dashed_key_test() ->
 format_ignore_pid_test() ->
     Config = [{app, "myapp"}, {strip_pid, true}],
     Msg = lager_msg:new("msg", error, [{pid, list_to_pid("<0.1.0>")}], []),
-    ?assertEqual(<<"app=myapp severity=error msg\n">>,
+    ?assertMatch(<<"time=\"", _:23/binary, "\" level=error app=myapp msg=\"msg\"\n">>,
                  iolist_to_binary(format(Msg, Config))).
 
 format_no_ignore_pid_test() ->
     Config = [{app, "myapp"}, {strip_pid, false}],
     Msg = lager_msg:new("msg", error, [{pid, list_to_pid("<0.1.0>")}], []),
-    ?assertEqual(<<"app=myapp severity=error pid=<0.1.0> msg\n">>,
+    ?assertMatch(<<"time=\"", _:23/binary, "\" level=error app=myapp msg=\"msg\" pid=<0.1.0>\n">>,
                  iolist_to_binary(format(Msg, Config))).
 
 format_no_ignore_string_pid_test() ->
     Config = [{app, "myapp"}, {strip_pid, false}],
     Msg = lager_msg:new("msg", error, [{pid, "<0.1.0>"}], []),
-    ?assertEqual(<<"app=myapp severity=error pid=<0.1.0> msg\n">>,
+    ?assertMatch(<<"time=\"", _:23/binary, "\" level=error app=myapp msg=\"msg\" pid=<0.1.0>\n">>,
                  iolist_to_binary(format(Msg, Config))).
 
 format_test() ->
-    Msg = lager_msg:new("msg='msg'", error, [{application, myapp},
+    Msg = lager_msg:new("'msg'", error, [{application, myapp},
                                          {module, mymod},
                                          {function, myfun},
                                          {line, 100},
@@ -202,8 +213,10 @@ format_test() ->
                                          {undefined_key, undefined}],
                         []),
     Config = [{app, "myapp"}, {defaults, [{"default", "value"}]}],
-    ?assertEqual(<<"app=myapp "
-                   "severity=error "
+    ?assertMatch(<<"time=\"", _:23/binary, "\" "
+                   "level=error "
+                   "app=myapp "
+                   "msg=\"\\'msg\\'\" "
                    "default=value "
                    "dashed_key=\"value\" "
                    "string=\"\\'test\\'\\n\" "
@@ -216,8 +229,7 @@ format_test() ->
                    "line=100 "
                    "function=myfun "
                    "module=mymod "
-                   "application=myapp "
-                   "msg='msg'"
+                   "application=myapp"
                    "\n">>,
                  list_to_binary(format(Msg, Config))).
 
